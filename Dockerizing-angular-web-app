@@ -1,0 +1,188 @@
+		*******Dockerizing-Angular Web-app*******
+_________________________________________________________________________________________
+
+1. Create Dockerfile in project root directory:
+
+-------------------------------------------------------------------------------------
+
+
+# base image
+FROM node:12.2.0
+
+# install chrome for protractor tests
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+RUN sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+RUN apt-get update && apt-get install -yq google-chrome-stable
+
+# set working directory
+WORKDIR /app
+
+# add `/app/node_modules/.bin` to $PATH
+ENV PATH /app/node_modules/.bin:$PATH
+
+# install and cache app dependencies
+COPY package.json /app/package.json
+RUN npm install
+RUN npm install -g @angular/cli@7.3.9
+
+# add app
+COPY . /app
+
+# start app
+CMD ng serve --host 0.0.0.0
+
+
+----------------------------------------------------------------------------------
+
+
+
+2. Create dockerignore: (This will speed up the Docker build process as our local dependencies and git repo will not be sent to the Docker daemon).
+----------------------------------------------------------------------------------
+
+
+node_modules
+.git
+.gitignore
+
+------------------------------------------------------------------------------
+
+
+3. Build and tag the Docker image:to build run the below command. 
+------------------------------------------------------------------------------
+
+$ docker build -t example:dev .
+
+-------------------------------------------------------------------------------
+
+4. Then, spin up the container once the build is done:run the below command.
+--------------------------------------------------------------------------------
+
+$ docker run -v ${PWD}:/app -v /app/node_modules -p 4201:4200 --rm example:dev
+--------------------------------------------------------------------------------
+ ____
+|NOTE|: Use the -d flag to run the container in the background:
+ ````
+$ docker run -d -v ${PWD}:/app -v /app/node_modules -p 4201:4200 --name foo --rm example:dev
+_____________________________________________________________________________________________
+
+
+Command to list containers running:
+$ sudo docker ps or sudo docker ps -a
+
+Command to kill running container:
+$ sudo docker kill <container_id>
+
+
+-----------------------------------------------------------------------------------------------
+
+5. Once up, update the Karma and Protractor config files to run Chrome in headless mode:
+
+src/karma.conf.js:
+------------------
+
+
+
+module.exports = function (config) {
+  config.set({
+    basePath: '',
+    frameworks: ['jasmine', '@angular-devkit/build-angular'],
+    plugins: [
+      require('karma-jasmine'),
+      require('karma-chrome-launcher'),
+      require('karma-jasmine-html-reporter'),
+      require('karma-coverage-istanbul-reporter'),
+      require('@angular-devkit/build-angular/plugins/karma')
+    ],
+    client: {
+      clearContext: false
+    },
+    coverageIstanbulReporter: {
+      dir: require('path').join(__dirname, '../coverage/example'),
+      reports: ['html', 'lcovonly', 'text-summary'],
+      fixWebpackSourcePaths: true
+    },
+    reporters: ['progress', 'kjhtml'],
+    port: 9876,
+    colors: true,
+    logLevel: config.LOG_INFO,
+    autoWatch: true,
+    >>>>>>>>>>>>>>>>>>>>>>>>>// updated<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    browsers: ['ChromeHeadless'],
+    >>>>>>>>>>>>>>>>>>>>>>>>>>>// new<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    customLaunchers: {
+      'ChromeHeadless': {
+        base: 'Chrome',
+        flags: [
+          '--no-sandbox',
+          '--headless',
+          '--disable-gpu',
+          '--remote-debugging-port=9222'
+        ]
+      }
+    },
+    singleRun: false,
+    restartOnFileChange: true
+  });
+};
+
+------------------------------------------------------------------------------------------------
+
+e2e/protractor.conf.js:
+-----------------------
+
+const { SpecReporter } = require('jasmine-spec-reporter');
+
+exports.config = {
+  allScriptsTimeout: 11000,
+  specs: [
+    './src/**/*.e2e-spec.ts'
+  ],
+  capabilities: {
+    'browserName': 'chrome',
+    >>>>>>>>>>>>>>>>>>>>>>>// new<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    'chromeOptions': {
+      'args': [
+        '--no-sandbox',
+        '--headless',
+        '--window-size=1024,768'
+      ]
+    }
+  },
+  directConnect: true,
+  baseUrl: 'http://localhost:4200/',
+  framework: 'jasmine',
+  jasmineNodeOpts: {
+    showColors: true,
+    defaultTimeoutInterval: 30000,
+    print: function() {}
+  },
+  onPrepare() {
+    require('ts-node').register({
+      project: require('path').join(__dirname, './tsconfig.e2e.json')
+    });
+    jasmine.getEnv().addReporter(new SpecReporter({ spec: { displayStacktrace: true } }));
+  }
+};
+
+-----------------------------------------------------------------------------------------------
+
+6. Run the unit and e2e tests:
+
+-------------------------------------------------------------------------------------------------
+
+$ docker exec -it foo ng test --watch=false
+$ docker exec -it foo ng e2e --port 4202
+
+--------------------------------------------------------------------------------------------------
+
+Stop the container once done:
+
+$ docker stop foo
+----------------------------------------------------------------------------------------
+
+
+Want to use Docker Compose? Add a docker-compose.yml file to the project root:
+
+https://mherman.org/blog/dockerizing-an-angular-app/
+
+
